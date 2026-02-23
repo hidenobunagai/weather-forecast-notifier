@@ -10,7 +10,7 @@ Google Apps Script で天気予報を監視し、Discord へ通知するスク�
 
 ### 1) clasp の準備
 
-1. `npm i -g @google/clasp`
+1. `bun add -g @google/clasp`
 2. `clasp login`
 
 ### 2) .clasp.json の作成

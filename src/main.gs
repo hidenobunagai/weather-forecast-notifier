@@ -5,7 +5,7 @@ function checkAndNotify() {
   const tz = Session.getScriptTimeZone() || 'Asia/Tokyo';
   const tomorrow = getTomorrowDateString(tz); // 'YYYY-MM-DD'
 
-  const webhookUrl = (PropertiesService.getScriptProperties().getProperty('DISCORD_WEBHOOK_URL') || '').trim();
+  const webhookUrl = (getEnv('DISCORD_WEBHOOK_URL', '') || '').trim();
   if (!webhookUrl) {
     console.warn('Script Property DISCORD_WEBHOOK_URL が未設定です。');
     return;
@@ -81,25 +81,22 @@ function manualTest() {
  * lat/lon は近傍代表点（Open-Meteoはグリッド補間）。
  */
 function getLocations() {
-  var props = PropertiesService.getScriptProperties();
-  var raw = props.getProperty('LOCATIONS_JSON') || '';
+  const raw = getEnv('LOCATIONS_JSON', '');
   if (!raw) {
     console.warn('Script Property LOCATIONS_JSON が未設定です。');
     return [];
   }
   try {
-    var parsed = JSON.parse(raw);
+    const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
       return parsed
-        .filter(function (o) { return o && typeof o.lat === 'number' && typeof o.lon === 'number'; })
-        .map(function (o) {
-          return {
-            label: o.label || '',
-            area: o.area || '',
-            lat: o.lat,
-            lon: o.lon,
-          };
-        });
+        .filter((o) => o && typeof o.lat === 'number' && typeof o.lon === 'number')
+        .map((o) => ({
+          label: o.label || '',
+          area: o.area || '',
+          lat: o.lat,
+          lon: o.lon,
+        }));
     }
   } catch (e) {
     console.warn('LOCATIONS_JSON の JSON 解析に失敗しました。', e);
@@ -110,10 +107,7 @@ function getLocations() {
 /** 明日の日付（YYYY-MM-DD）をスクリプトのタイムゾーンで返す。 */
 function getTomorrowDateString(tz) {
   const now = new Date();
-  // 現在日時のタイムゾーンを考慮して「明日」に+1日
-  const fmtToday = Utilities.formatDate(now, tz, 'yyyy-MM-dd');
-  const today = new Date(fmtToday + 'T00:00:00');
-  const tomorrowDate = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+  const tomorrowDate = new Date(now.getTime() + 24 * 60 * 60 * 1000);
   return Utilities.formatDate(tomorrowDate, tz, 'yyyy-MM-dd');
 }
 
