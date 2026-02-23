@@ -2,12 +2,12 @@
  * 明日の天気が「雨」なら Discord に通知する（JST 前日21時に実行される想定）。
  */
 function checkAndNotify() {
-  const tz = Session.getScriptTimeZone() || 'Asia/Tokyo';
+  const tz = Session.getScriptTimeZone() || "Asia/Tokyo";
   const tomorrow = getTomorrowDateString(tz); // 'YYYY-MM-DD'
 
-  const webhookUrl = (getEnv('DISCORD_WEBHOOK_URL', '') || '').trim();
+  const webhookUrl = (getEnv("DISCORD_WEBHOOK_URL", "") || "").trim();
   if (!webhookUrl) {
-    console.warn('Script Property DISCORD_WEBHOOK_URL が未設定です。');
+    console.warn("Script Property DISCORD_WEBHOOK_URL が未設定です。");
     return;
   }
 
@@ -37,7 +37,7 @@ function checkAndNotify() {
   }
 
   if (rainyReports.length === 0) {
-    console.log('明日の雨予報はありません。通知をスキップします。');
+    console.log("明日の雨予報はありません。通知をスキップします。");
     return;
   }
 
@@ -50,10 +50,10 @@ function checkAndNotify() {
  */
 function createDailyTrigger() {
   // 重複防止: 既存の同名トリガーを削除してから作成
-  deleteTriggers('checkAndNotify');
-  ScriptApp.newTrigger('checkAndNotify')
+  deleteTriggers("checkAndNotify");
+  ScriptApp.newTrigger("checkAndNotify")
     .timeBased()
-    .atHour(21)       // JSTとして動作（manifest の timeZone を使用）
+    .atHour(21) // JSTとして動作（manifest の timeZone を使用）
     .nearMinute(0)
     .everyDays(1)
     .create();
@@ -81,25 +81,25 @@ function manualTest() {
  * lat/lon は近傍代表点（Open-Meteoはグリッド補間）。
  */
 function getLocations() {
-  const raw = getEnv('LOCATIONS_JSON', '');
+  const raw = getEnv("LOCATIONS_JSON", "");
   if (!raw) {
-    console.warn('Script Property LOCATIONS_JSON が未設定です。');
+    console.warn("Script Property LOCATIONS_JSON が未設定です。");
     return [];
   }
   try {
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
       return parsed
-        .filter((o) => o && typeof o.lat === 'number' && typeof o.lon === 'number')
+        .filter((o) => o && typeof o.lat === "number" && typeof o.lon === "number")
         .map((o) => ({
-          label: o.label || '',
-          area: o.area || '',
+          label: o.label || "",
+          area: o.area || "",
           lat: o.lat,
           lon: o.lon,
         }));
     }
   } catch (e) {
-    console.warn('LOCATIONS_JSON の JSON 解析に失敗しました。', e);
+    console.warn("LOCATIONS_JSON の JSON 解析に失敗しました。", e);
   }
   return [];
 }
@@ -108,7 +108,7 @@ function getLocations() {
 function getTomorrowDateString(tz) {
   const now = new Date();
   const tomorrowDate = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-  return Utilities.formatDate(tomorrowDate, tz, 'yyyy-MM-dd');
+  return Utilities.formatDate(tomorrowDate, tz, "yyyy-MM-dd");
 }
 
 /** Open-Meteo から対象日の日次データを取得。 */
@@ -116,15 +116,15 @@ function fetchOpenMeteoDaily(lat, lon, ymd) {
   const params = {
     latitude: lat,
     longitude: lon,
-    daily: 'weathercode,precipitation_sum,precipitation_probability_max,rain_sum',
-    timezone: 'Asia/Tokyo',
+    daily: "weathercode,precipitation_sum,precipitation_probability_max,rain_sum",
+    timezone: "Asia/Tokyo",
     start_date: ymd,
     end_date: ymd,
   };
-  const url = 'https://api.open-meteo.com/v1/forecast' + toQuery(params);
-  const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, method: 'get' });
+  const url = "https://api.open-meteo.com/v1/forecast" + toQuery(params);
+  const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, method: "get" });
   if (res.getResponseCode() !== 200) {
-    console.warn('Open-Meteo API 非200:', res.getResponseCode(), res.getContentText());
+    console.warn("Open-Meteo API 非200:", res.getResponseCode(), res.getContentText());
     return null;
   }
   const json = JSON.parse(res.getContentText());
@@ -151,40 +151,39 @@ function isRainy(daily) {
 function isRainyWeatherCode(code) {
   // 51–67: 霧雨・雨、80–82: にわか雨
   if (code == null) return false;
-  return (
-    (code >= 51 && code <= 67) ||
-    (code >= 80 && code <= 82)
-  );
+  return (code >= 51 && code <= 67) || (code >= 80 && code <= 82);
 }
 
 /** Discord 送信本文を構築。 */
 function buildDiscordMessage(ymd, reports) {
   const lines = [];
   lines.push(`明日（${ymd}）は雨の予報があります。☔`);
-  lines.push('');
+  lines.push("");
   for (const r of reports) {
-    const prob = r.probabilityMax != null ? `${r.probabilityMax}%` : 'N/A';
-    const psum = r.precipitationSum != null ? `${r.precipitationSum}mm` : 'N/A';
-    const rsum = r.rainSum != null ? `${r.rainSum}mm` : 'N/A';
-    lines.push(`・${r.label}（${r.area}）: 降水確率 最大 ${prob} / 降水量合計 ${psum} / 雨量合計 ${rsum}`);
+    const prob = r.probabilityMax != null ? `${r.probabilityMax}%` : "N/A";
+    const psum = r.precipitationSum != null ? `${r.precipitationSum}mm` : "N/A";
+    const rsum = r.rainSum != null ? `${r.rainSum}mm` : "N/A";
+    lines.push(
+      `・${r.label}（${r.area}）: 降水確率 最大 ${prob} / 降水量合計 ${psum} / 雨量合計 ${rsum}`,
+    );
   }
-  lines.push('');
-  lines.push('雨具のご準備をお忘れなく！');
-  return lines.join('\n');
+  lines.push("");
+  lines.push("雨具のご準備をお忘れなく！");
+  return lines.join("\n");
 }
 
 /** Discord Webhook に POST。 */
 function postToDiscord(webhookUrl, content) {
   const payload = { content: content };
   const options = {
-    method: 'post',
-    contentType: 'application/json',
+    method: "post",
+    contentType: "application/json",
     payload: JSON.stringify(payload),
     muteHttpExceptions: true,
   };
   const res = UrlFetchApp.fetch(webhookUrl, options);
   if (res.getResponseCode() >= 300) {
-    console.warn('Discord Webhook エラー:', res.getResponseCode(), res.getContentText());
+    console.warn("Discord Webhook エラー:", res.getResponseCode(), res.getContentText());
   }
 }
 
@@ -199,6 +198,6 @@ function toQuery(obj) {
   const esc = encodeURIComponent;
   const q = Object.keys(obj)
     .map((k) => `${esc(k)}=${esc(String(obj[k]))}`)
-    .join('&');
+    .join("&");
   return `?${q}`;
 }
