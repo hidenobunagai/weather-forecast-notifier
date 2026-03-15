@@ -28,7 +28,7 @@ function checkAndNotify() {
           probabilityMax: numOrNull(daily.precipitation_probability_max?.[0]),
           precipitationSum: numOrNull(daily.precipitation_sum?.[0]),
           rainSum: numOrNull(daily.rain_sum?.[0]),
-          weathercode: daily.weathercode?.[0],
+          weathercode: daily.weather_code?.[0],
         });
       }
     } catch (e) {
@@ -116,7 +116,7 @@ function fetchOpenMeteoDaily(lat, lon, ymd) {
   const params = {
     latitude: lat,
     longitude: lon,
-    daily: "weathercode,precipitation_sum,precipitation_probability_max,rain_sum",
+    daily: "weather_code,precipitation_sum,precipitation_probability_max,rain_sum",
     timezone: "Asia/Tokyo",
     start_date: ymd,
     end_date: ymd,
@@ -127,15 +127,20 @@ function fetchOpenMeteoDaily(lat, lon, ymd) {
     console.warn("Open-Meteo API 非200:", res.getResponseCode(), res.getContentText());
     return null;
   }
-  const json = JSON.parse(res.getContentText());
-  return json.daily || null;
+  try {
+    const json = JSON.parse(res.getContentText());
+    return json.daily || null;
+  } catch (e) {
+    console.warn("Open-Meteo API レスポンス解析エラー:", e);
+    return null;
+  }
 }
 
 /** 日次データから「雨」と判定。 */
 function isRainy(daily) {
   const pSum = numOrNull(daily.precipitation_sum?.[0]); // mm
   const rSum = numOrNull(daily.rain_sum?.[0]); // mm
-  const code = daily.weathercode?.[0];
+  const code = daily.weather_code?.[0];
   const prob = numOrNull(daily.precipitation_probability_max?.[0]); // %
 
   // 基本は降水量 > 0 で雨
@@ -147,11 +152,11 @@ function isRainy(daily) {
   return false;
 }
 
-/** WMO weathercode のうち雨系なら true。 */
+/** WMO weather_code のうち雨系なら true。 */
 function isRainyWeatherCode(code) {
-  // 51–67: 霧雨・雨、80–82: にわか雨
+  // 51–67: 霧雨・雨、80–82: にわか雨、95–99: 雷雨
   if (code == null) return false;
-  return (code >= 51 && code <= 67) || (code >= 80 && code <= 82);
+  return (code >= 51 && code <= 67) || (code >= 80 && code <= 82) || (code >= 95 && code <= 99);
 }
 
 /** Discord 送信本文を構築。 */
@@ -174,7 +179,10 @@ function buildDiscordMessage(ymd, reports) {
 
 /** Discord Webhook に POST。 */
 function postToDiscord(webhookUrl, content) {
-  const payload = { content: content };
+  const MAX_CHARS = 2000;
+  const safeContent =
+    content.length > MAX_CHARS ? content.slice(0, MAX_CHARS - 3) + "..." : content;
+  const payload = { content: safeContent };
   const options = {
     method: "post",
     contentType: "application/json",
@@ -182,8 +190,11 @@ function postToDiscord(webhookUrl, content) {
     muteHttpExceptions: true,
   };
   const res = UrlFetchApp.fetch(webhookUrl, options);
-  if (res.getResponseCode() >= 300) {
-    console.warn("Discord Webhook エラー:", res.getResponseCode(), res.getContentText());
+  const code = res.getResponseCode();
+  if (code >= 300) {
+    console.warn("Discord Webhook エラー:", code, res.getContentText());
+  } else {
+    console.log("Discord 通知完了 (HTTP", code, ")");
   }
 }
 
