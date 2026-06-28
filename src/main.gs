@@ -155,15 +155,17 @@ function fetchOpenMeteoDaily(lat, lon, ymd) {
 function buildDiscordMessage(ymd, reports) {
   const lines = [];
   lines.push(`📅 明日（${ymd}）の天気予報`);
-  lines.push("");
   for (const r of reports) {
     const weather = weatherCodeToText(r.weathercode);
     const prob = r.probabilityMax != null ? `${r.probabilityMax}%` : "N/A";
     const psum = r.precipitationSum != null ? `${r.precipitationSum}mm` : "N/A";
     const rsum = r.rainSum != null ? `${r.rainSum}mm` : "N/A";
-    lines.push(
-      `・${r.label}（${r.area}）: ${weather} / 降水確率 ${prob} / 降水量 ${psum} / 雨量 ${rsum}`,
-    );
+    lines.push("");
+    lines.push(`━ ${r.label}（${r.area}）━`);
+    lines.push(`  天気: ${weather}`);
+    lines.push(`  降水確率: ${prob}`);
+    lines.push(`  降水量: ${psum}`);
+    lines.push(`  雨量: ${rsum}`);
   }
   return lines.join("\n");
 }
