@@ -1,13 +1,25 @@
+const LINE_PUSH_URL = "https://api.line.me/v2/bot/message/push";
+const LINE_MAX_RETRIES = 3;
+const LINE_MAX_TEXT_LENGTH = 5000;
+const LINE_MAX_MESSAGES_PER_PUSH = 5;
+const LINE_CHUNK_INTERVAL_MS = 1000;
+
 /**
- * 明日の天気が「雨」なら Discord に通知する（JST 前日21時に実行される想定）。
+ * 明日の天気が「雨」なら Discord / LINE に通知する（JST 前日21時に実行される想定）。
  */
 function checkAndNotify() {
   const tz = Session.getScriptTimeZone() || "Asia/Tokyo";
   const tomorrow = getTomorrowDateString(tz); // 'YYYY-MM-DD'
 
   const webhookUrl = (getEnv("DISCORD_WEBHOOK_URL", "") || "").trim();
-  if (!webhookUrl) {
-    console.warn("Script Property DISCORD_WEBHOOK_URL が未設定です。");
+  const lineChannelAccessToken = (getEnv("LINE_CHANNEL_ACCESS_TOKEN", "") || "").trim();
+  const lineTargetId = (getEnv("LINE_TARGET_ID", "") || "").trim();
+
+  const hasDiscord = !!webhookUrl;
+  const hasLine = !!lineChannelAccessToken && !!lineTargetId;
+
+  if (!hasDiscord && !hasLine) {
+    console.warn("Script Properties に通知先が未設定です。DISCORD_WEBHOOK_URL または LINE_CHANNEL_ACCESS_TOKEN + LINE_TARGET_ID を設定してください。");
     return;
   }
 
@@ -42,7 +54,13 @@ function checkAndNotify() {
   }
 
   const content = buildDiscordMessage(tomorrow, rainyReports);
-  postToDiscord(webhookUrl, content);
+
+  if (hasDiscord) {
+    postToDiscord(webhookUrl, content);
+  }
+  if (hasLine) {
+    postToLineInChunks(lineChannelAccessToken, lineTargetId, [content]);
+  }
 }
 
 /**
@@ -195,6 +213,92 @@ function postToDiscord(webhookUrl, content) {
     console.warn("Discord Webhook エラー:", code, res.getContentText());
   } else {
     console.log("Discord 通知完了 (HTTP", code, ")");
+  }
+}
+
+// ========= LINE 通知 =========
+
+/**
+ * LINE Messaging API へのメッセージ送信 (push) をチャンク分割で実行
+ * @param {string} channelAccessToken LINE_CHANNEL_ACCESS_TOKEN
+ * @param {string} targetId LINE_TARGET_ID (ユーザー/グループ/トークルーム ID)
+ * @param {string[]} messages 通知メッセージ配列
+ */
+function postToLineInChunks(channelAccessToken, targetId, messages) {
+  const sep = "\n\n";
+  const chunks = [];
+  let buffer = "";
+  for (const rawMsg of messages) {
+    const msg = normalizeLineMessage(rawMsg, LINE_MAX_TEXT_LENGTH);
+    if (!msg) continue;
+    const joined = buffer ? buffer + sep + msg : msg;
+    if (joined.length > LINE_MAX_TEXT_LENGTH) {
+      if (buffer) chunks.push(buffer);
+      buffer = msg;
+    } else {
+      buffer = joined;
+    }
+  }
+  if (buffer) chunks.push(buffer);
+
+  for (let i = 0; i < chunks.length; i += LINE_MAX_MESSAGES_PER_PUSH) {
+    if (i > 0) Utilities.sleep(LINE_CHUNK_INTERVAL_MS);
+    const batch = chunks.slice(i, i + LINE_MAX_MESSAGES_PER_PUSH);
+    postToLine(channelAccessToken, targetId, batch);
+  }
+}
+
+function normalizeLineMessage(message, maxLen) {
+  if (!message) return "";
+  if (message.length <= maxLen) return message;
+  const ellipsis = "…";
+  const limit = Math.max(maxLen - ellipsis.length, 0);
+  return `${message.slice(0, limit)}${ellipsis}`;
+}
+
+/**
+ * LINE Messaging API の push エンドポイントへ送信
+ * @param {string} channelAccessToken
+ * @param {string} targetId
+ * @param {string[]} messageTexts 1 push に含めるテキストメッセージ配列 (最大 LINE_MAX_MESSAGES_PER_PUSH)
+ */
+function postToLine(channelAccessToken, targetId, messageTexts) {
+  const payload = {
+    to: targetId,
+    messages: messageTexts.map((text) => ({ type: "text", text })),
+  };
+  const params = {
+    method: "post",
+    contentType: "application/json",
+    headers: { Authorization: `Bearer ${channelAccessToken}` },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true,
+  };
+
+  for (let attempt = 1; attempt <= LINE_MAX_RETRIES; attempt++) {
+    const res = UrlFetchApp.fetch(LINE_PUSH_URL, params);
+    const code = res.getResponseCode();
+    if (code >= 200 && code < 300) return;
+
+    if (code === 401 || code === 400) {
+      const body = res.getContentText();
+      throw new Error(`LINE 送信エラー (${code}): ${body}`);
+    }
+
+    if (code === 429 && attempt < LINE_MAX_RETRIES) {
+      let waitMs = LINE_CHUNK_INTERVAL_MS * attempt;
+      const retryAfter = res.getHeaders()["Retry-After"];
+      if (retryAfter) {
+        const parsed = parseInt(retryAfter, 10);
+        if (!Number.isNaN(parsed)) waitMs = parsed * 1000;
+      }
+      console.warn(`LINE レート制限 (429)。${waitMs}ms 後にリトライ (${attempt}/${LINE_MAX_RETRIES})`);
+      Utilities.sleep(waitMs);
+      continue;
+    }
+
+    const body = res.getContentText();
+    throw new Error(`LINE 送信エラー (${code}): ${body}`);
   }
 }
 
