@@ -3,6 +3,8 @@ const LINE_MAX_RETRIES = 3;
 const LINE_MAX_TEXT_LENGTH = 5000;
 const LINE_MAX_MESSAGES_PER_PUSH = 5;
 const LINE_CHUNK_INTERVAL_MS = 1000;
+const OPENMETEO_MAX_RETRIES = 4;
+const OPENMETEO_BASE_WAIT_MS = 1000;
 
 /**
  * 明日の天気予報を Discord / LINE に通知する（JST 前日21時に実行される想定）。
@@ -126,7 +128,7 @@ function getTomorrowDateString(tz) {
   return Utilities.formatDate(tomorrowDate, tz, "yyyy-MM-dd");
 }
 
-/** Open-Meteo から対象日の日次データを取得。 */
+/** Open-Meteo から対象日の日次データを取得。429 時は指数バックオフでリトライ。 */
 function fetchOpenMeteoDaily(lat, lon, ymd) {
   const params = {
     latitude: lat,
@@ -136,17 +138,29 @@ function fetchOpenMeteoDaily(lat, lon, ymd) {
     start_date: ymd,
     end_date: ymd,
   };
-  const url = "https://api.open-meteo.com/v1/forecast" + toQuery(params);
-  const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, method: "get" });
-  if (res.getResponseCode() !== 200) {
+  const baseUrl = "https://api.open-meteo.com/v1/forecast";
+
+  for (let attempt = 1; attempt <= OPENMETEO_MAX_RETRIES; attempt++) {
+    const url = baseUrl + toQuery(params);
+    const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, method: "get" });
+    if (res.getResponseCode() === 200) {
+      try {
+        const json = JSON.parse(res.getContentText());
+        return json.daily || null;
+      } catch (e) {
+        console.warn("Open-Meteo API レスポンス解析エラー:", e);
+        return null;
+      }
+    }
+
+    if (res.getResponseCode() === 429 && attempt < OPENMETEO_MAX_RETRIES) {
+      const waitMs = OPENMETEO_BASE_WAIT_MS * Math.pow(2, attempt - 1);
+      console.warn(`Open-Meteo API レート制限 (429)。${waitMs}ms 後にリトライ (${attempt}/${OPENMETEO_MAX_RETRIES})`);
+      Utilities.sleep(waitMs);
+      continue;
+    }
+
     console.warn("Open-Meteo API 非200:", res.getResponseCode(), res.getContentText());
-    return null;
-  }
-  try {
-    const json = JSON.parse(res.getContentText());
-    return json.daily || null;
-  } catch (e) {
-    console.warn("Open-Meteo API レスポンス解析エラー:", e);
     return null;
   }
 }
