@@ -5,7 +5,7 @@ const LINE_MAX_MESSAGES_PER_PUSH = 5;
 const LINE_CHUNK_INTERVAL_MS = 1000;
 
 /**
- * 明日の天気が「雨」なら Discord / LINE に通知する（JST 前日21時に実行される想定）。
+ * 明日の天気予報を Discord / LINE に通知する（JST 前日21時に実行される想定）。
  */
 function checkAndNotify() {
   const tz = Session.getScriptTimeZone() || "Asia/Tokyo";
@@ -24,36 +24,33 @@ function checkAndNotify() {
   }
 
   const locations = getLocations();
-  const rainyReports = [];
+  const reports = [];
 
   for (const loc of locations) {
     try {
       const daily = fetchOpenMeteoDaily(loc.lat, loc.lon, tomorrow);
       if (!daily) continue;
 
-      const isRain = isRainy(daily);
-      if (isRain) {
-        rainyReports.push({
-          label: loc.label,
-          area: loc.area,
-          date: tomorrow,
-          probabilityMax: numOrNull(daily.precipitation_probability_max?.[0]),
-          precipitationSum: numOrNull(daily.precipitation_sum?.[0]),
-          rainSum: numOrNull(daily.rain_sum?.[0]),
-          weathercode: daily.weather_code?.[0],
-        });
-      }
+      reports.push({
+        label: loc.label,
+        area: loc.area,
+        date: tomorrow,
+        probabilityMax: numOrNull(daily.precipitation_probability_max?.[0]),
+        precipitationSum: numOrNull(daily.precipitation_sum?.[0]),
+        rainSum: numOrNull(daily.rain_sum?.[0]),
+        weathercode: daily.weather_code?.[0],
+      });
     } catch (e) {
       console.error(`Failed to fetch/parse for ${loc.label}:`, e);
     }
   }
 
-  if (rainyReports.length === 0) {
-    console.log("明日の雨予報はありません。通知をスキップします。");
+  if (reports.length === 0) {
+    console.log("天気予報データが取得できませんでした。通知をスキップします。");
     return;
   }
 
-  const content = buildDiscordMessage(tomorrow, rainyReports);
+  const content = buildDiscordMessage(tomorrow, reports);
 
   if (hasDiscord) {
     postToDiscord(webhookUrl, content);
@@ -154,45 +151,38 @@ function fetchOpenMeteoDaily(lat, lon, ymd) {
   }
 }
 
-/** 日次データから「雨」と判定。 */
-function isRainy(daily) {
-  const pSum = numOrNull(daily.precipitation_sum?.[0]); // mm
-  const rSum = numOrNull(daily.rain_sum?.[0]); // mm
-  const code = daily.weather_code?.[0];
-  const prob = numOrNull(daily.precipitation_probability_max?.[0]); // %
-
-  // 基本は降水量 > 0 で雨
-  if ((pSum || 0) > 0 || (rSum || 0) > 0) return true;
-
-  // 補助: 降水確率が高く、かつ該当 weathercode が雨系
-  if ((prob || 0) >= 60 && isRainyWeatherCode(code)) return true;
-
-  return false;
-}
-
-/** WMO weather_code のうち雨系なら true。 */
-function isRainyWeatherCode(code) {
-  // 51–67: 霧雨・雨、80–82: にわか雨、95–99: 雷雨
-  if (code == null) return false;
-  return (code >= 51 && code <= 67) || (code >= 80 && code <= 82) || (code >= 95 && code <= 99);
-}
-
 /** Discord 送信本文を構築。 */
 function buildDiscordMessage(ymd, reports) {
   const lines = [];
-  lines.push(`明日（${ymd}）は雨の予報があります。☔`);
+  lines.push(`📅 明日（${ymd}）の天気予報`);
   lines.push("");
   for (const r of reports) {
+    const weather = weatherCodeToText(r.weathercode);
     const prob = r.probabilityMax != null ? `${r.probabilityMax}%` : "N/A";
     const psum = r.precipitationSum != null ? `${r.precipitationSum}mm` : "N/A";
     const rsum = r.rainSum != null ? `${r.rainSum}mm` : "N/A";
     lines.push(
-      `・${r.label}（${r.area}）: 降水確率 最大 ${prob} / 降水量合計 ${psum} / 雨量合計 ${rsum}`,
+      `・${r.label}（${r.area}）: ${weather} / 降水確率 ${prob} / 降水量 ${psum} / 雨量 ${rsum}`,
     );
   }
-  lines.push("");
-  lines.push("雨具のご準備をお忘れなく！");
   return lines.join("\n");
+}
+
+/** WMO weather_code を日本語の天気表現に変換。 */
+function weatherCodeToText(code) {
+  if (code == null) return "不明";
+  if (code === 0) return "☀ 快晴";
+  if (code === 1) return "🌤 晴れ";
+  if (code === 2) return "⛅ 曇り時々晴れ";
+  if (code === 3) return "☁ 曇り";
+  if (code >= 45 && code <= 48) return "🌫 霧";
+  if (code >= 51 && code <= 57) return "🌦 霧雨";
+  if (code >= 61 && code <= 67) return "🌧 雨";
+  if (code >= 71 && code <= 77) return "🌨 雪";
+  if (code >= 80 && code <= 82) return "🌦 にわか雨";
+  if (code >= 85 && code <= 86) return "🌨 にわか雪";
+  if (code >= 95 && code <= 99) return "⛈ 雷雨";
+  return "🌈 その他";
 }
 
 /** Discord Webhook に POST。 */
