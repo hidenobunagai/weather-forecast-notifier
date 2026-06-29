@@ -3,8 +3,6 @@ const LINE_MAX_RETRIES = 3;
 const LINE_MAX_TEXT_LENGTH = 5000;
 const LINE_MAX_MESSAGES_PER_PUSH = 5;
 const LINE_CHUNK_INTERVAL_MS = 1000;
-const OPENMETEO_MAX_RETRIES = 4;
-const OPENMETEO_BASE_WAIT_MS = 1000;
 
 /**
  * 明日の天気予報を Discord / LINE に通知する（JST 前日21時に実行される想定）。
@@ -12,6 +10,14 @@ const OPENMETEO_BASE_WAIT_MS = 1000;
 function checkAndNotify() {
   const tz = Session.getScriptTimeZone() || "Asia/Tokyo";
   const tomorrow = getTomorrowDateString(tz); // 'YYYY-MM-DD'
+
+  // 重複実行防止: 当日の成功実行フラグがあればスキップ
+  const today = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
+  const dedupKey = "RUN_OK_" + today;
+  if (PropertiesService.getScriptProperties().getProperty(dedupKey)) {
+    console.log("本日は既に実行済みのためスキップします。");
+    return;
+  }
 
   const webhookUrl = (getEnv("DISCORD_WEBHOOK_URL", "") || "").trim();
   const lineChannelAccessToken = (getEnv("LINE_CHANNEL_ACCESS_TOKEN", "") || "").trim();
@@ -26,31 +32,39 @@ function checkAndNotify() {
   }
 
   const locations = getLocations();
+  if (locations.length === 0) {
+    console.warn("Script Properties LOCATIONS_JSON に監視対象地点が設定されていません。");
+    return;
+  }
+
+  const dailyList = fetchOpenMeteoDailyMulti(locations, tomorrow);
+  if (!dailyList) {
+    console.log("天気予報データが取得できませんでした。通知をスキップします。");
+    return;
+  }
+
   const reports = [];
-
-  for (const loc of locations) {
-    try {
-      const daily = fetchOpenMeteoDaily(loc.lat, loc.lon, tomorrow);
-      if (!daily) continue;
-
-      reports.push({
-        label: loc.label,
-        area: loc.area,
-        date: tomorrow,
-        probabilityMax: numOrNull(daily.precipitation_probability_max?.[0]),
-        precipitationSum: numOrNull(daily.precipitation_sum?.[0]),
-        rainSum: numOrNull(daily.rain_sum?.[0]),
-        weathercode: daily.weather_code?.[0],
-      });
-    } catch (e) {
-      console.error(`Failed to fetch/parse for ${loc.label}:`, e);
-    }
+  for (let i = 0; i < locations.length; i++) {
+    const daily = dailyList[i];
+    if (!daily) continue;
+    reports.push({
+      label: locations[i].label,
+      area: locations[i].area,
+      date: tomorrow,
+      probabilityMax: numOrNull(daily.precipitation_probability_max),
+      precipitationSum: numOrNull(daily.precipitation_sum),
+      rainSum: numOrNull(daily.rain_sum),
+      weathercode: daily.weather_code,
+    });
   }
 
   if (reports.length === 0) {
     console.log("天気予報データが取得できませんでした。通知をスキップします。");
     return;
   }
+
+  // 成功したら重複防止フラグを保存（当日中は再実行しない）
+  PropertiesService.getScriptProperties().setProperty(dedupKey, "1");
 
   const content = buildDiscordMessage(tomorrow, reports);
 
@@ -128,41 +142,53 @@ function getTomorrowDateString(tz) {
   return Utilities.formatDate(tomorrowDate, tz, "yyyy-MM-dd");
 }
 
-/** Open-Meteo から対象日の日次データを取得。429 時は指数バックオフでリトライ。 */
-function fetchOpenMeteoDaily(lat, lon, ymd) {
+/** Open-Meteo から全地点の日次データを1リクエストに統合して取得。 */
+function fetchOpenMeteoDailyMulti(locations, ymd) {
+  const lats = locations.map((l) => l.lat).join(",");
+  const lons = locations.map((l) => l.lon).join(",");
   const params = {
-    latitude: lat,
-    longitude: lon,
+    latitude: lats,
+    longitude: lons,
     daily: "weather_code,precipitation_sum,precipitation_probability_max,rain_sum",
     timezone: "Asia/Tokyo",
     start_date: ymd,
     end_date: ymd,
   };
   const baseUrl = "https://api.open-meteo.com/v1/forecast";
+  const url = baseUrl + toQuery(params);
 
-  for (let attempt = 1; attempt <= OPENMETEO_MAX_RETRIES; attempt++) {
-    const url = baseUrl + toQuery(params);
-    const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, method: "get" });
-    if (res.getResponseCode() === 200) {
-      try {
-        const json = JSON.parse(res.getContentText());
-        return json.daily || null;
-      } catch (e) {
-        console.warn("Open-Meteo API レスポンス解析エラー:", e);
-        return null;
-      }
+  const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, method: "get" });
+
+  if (res.getResponseCode() === 200) {
+    try {
+      const json = JSON.parse(res.getContentText());
+      if (!json.daily) return null;
+      // 地点ごとに該当インデックスの値を抽出
+      return locations.map((_, i) => ({
+        precipitation_probability_max: json.daily.precipitation_probability_max?.[i] ?? null,
+        precipitation_sum: json.daily.precipitation_sum?.[i] ?? null,
+        rain_sum: json.daily.rain_sum?.[i] ?? null,
+        weather_code: json.daily.weather_code?.[i] ?? null,
+      }));
+    } catch (e) {
+      console.warn("Open-Meteo API レスポンス解析エラー:", e);
+      return null;
     }
+  }
 
-    if (res.getResponseCode() === 429 && attempt < OPENMETEO_MAX_RETRIES) {
-      const waitMs = OPENMETEO_BASE_WAIT_MS * Math.pow(2, attempt - 1);
-      console.warn(`Open-Meteo API レート制限 (429)。${waitMs}ms 後にリトライ (${attempt}/${OPENMETEO_MAX_RETRIES})`);
-      Utilities.sleep(waitMs);
-      continue;
+  // 429: レスポンスボディから理由をログに出力し、リトライせず即座に諦める
+  if (res.getResponseCode() === 429) {
+    try {
+      const body = JSON.parse(res.getContentText());
+      console.warn("Open-Meteo API 429:", body.reason || "unknown");
+    } catch (_) {
+      console.warn("Open-Meteo API 429 (parse error)");
     }
-
-    console.warn("Open-Meteo API 非200:", res.getResponseCode(), res.getContentText());
     return null;
   }
+
+  console.warn("Open-Meteo API 非200:", res.getResponseCode(), res.getContentText());
+  return null;
 }
 
 /** Discord 送信本文を構築。 */
