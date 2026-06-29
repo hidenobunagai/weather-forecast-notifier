@@ -144,6 +144,8 @@ function getTomorrowDateString(tz) {
 
 /** Open-Meteo から全地点の日次データを1リクエストに統合して取得。 */
 function fetchOpenMeteoDailyMulti(locations, ymd) {
+  if (locations.length === 0) return null;
+
   const lats = locations.map((l) => l.lat).join(",");
   const lons = locations.map((l) => l.lon).join(",");
   const params = {
@@ -162,14 +164,18 @@ function fetchOpenMeteoDailyMulti(locations, ymd) {
   if (res.getResponseCode() === 200) {
     try {
       const json = JSON.parse(res.getContentText());
-      if (!json.daily) return null;
-      // 地点ごとに該当インデックスの値を抽出
-      return locations.map((_, i) => ({
-        precipitation_probability_max: json.daily.precipitation_probability_max?.[i] ?? null,
-        precipitation_sum: json.daily.precipitation_sum?.[i] ?? null,
-        rain_sum: json.daily.rain_sum?.[i] ?? null,
-        weather_code: json.daily.weather_code?.[i] ?? null,
-      }));
+      // 複数地点のときは JSON Array、1地点のときは JSON Object
+      const entries = Array.isArray(json) ? json : [json];
+      return entries.map((entry) => {
+        const daily = entry && entry.daily;
+        if (!daily) return null;
+        return {
+          precipitation_probability_max: daily.precipitation_probability_max?.[0] ?? null,
+          precipitation_sum: daily.precipitation_sum?.[0] ?? null,
+          rain_sum: daily.rain_sum?.[0] ?? null,
+          weather_code: daily.weather_code?.[0] ?? null,
+        };
+      });
     } catch (e) {
       console.warn("Open-Meteo API レスポンス解析エラー:", e);
       return null;
