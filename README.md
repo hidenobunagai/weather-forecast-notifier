@@ -99,7 +99,14 @@ function getEnv(name, defaultValue) {
 
   1. エディタ上部の関数プルダウンから `createDailyTrigger` を選択
   2. 実行ボタンを押すと権限承認ダイアログが表示されるので許可
-  3. 以後、毎日 21:00 に自動実行されます（不要になったら後述の方法で削除）
+  3. 以後、以下のトリガーが自動実行されます（不要になったら後述の方法で削除）
+     - 毎朝 09:05 / 10:05 / 11:05（JST）: `fetchAndCacheWeather`（予報を取得してキャッシュ。取得済みならスキップ）
+     - 毎晩 21:00（JST）: `checkAndNotify`（キャッシュから通知を送信。キャッシュが無ければ直接取得を試行）
+
+  > 取得を朝に行う理由: Open-Meteo の無料枠は IP 単位の日次上限（UTC 00:00 リセット）が
+  > あり、Apps Script は Google の共有 IP からアクセスするため、夜間（JST 21時 = UTC 12時）
+  > の取得は他ユーザーの利用で 429 になりやすい。UTC リセット直後の朝に取得して
+  > ScriptProperties へキャッシュし、夜はキャッシュから通知します。
 
 - 手動テスト（任意）
 
@@ -108,7 +115,7 @@ function getEnv(name, defaultValue) {
 
 - トリガー管理（削除/再作成）
 
-  - 既存トリガーを削除したい場合は、`deleteTriggers('checkAndNotify')` を一度実行してください。
+  - 既存トリガーを削除したい場合は、`deleteTriggers('checkAndNotify')` と `deleteTriggers('fetchAndCacheWeather')` を実行してください。
   - 再作成は `createDailyTrigger` を再実行します（内部で重複回避のため同名トリガーを削除してから作成します）。
 
 - 付与される主な権限
@@ -118,5 +125,5 @@ function getEnv(name, defaultValue) {
   - トリガーの管理（`ScriptApp`）
 
 - 補足
-  - 実行関数は `checkAndNotify`（自動実行対象）とし、トリガーは `createDailyTrigger` で作成します。
-  - 1 日の予報取得には Open‑Meteo API を利用しています。API の応答が 200 でない場合はログに警告を出してスキップします。
+  - 実行関数は `checkAndNotify`（夜の通知）と `fetchAndCacheWeather`（朝の取得）で、トリガーは `createDailyTrigger` で作成します。
+  - 1 日の予報取得には Open‑Meteo API を利用しています。API の応答が 200 でない場合はログに警告を出してスキップします（朝の取得が全滅した場合のみ夜に直接取得を試みます）。

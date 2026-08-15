@@ -4,6 +4,9 @@ const LINE_MAX_TEXT_LENGTH = 5000;
 const LINE_MAX_MESSAGES_PER_PUSH = 5;
 const LINE_CHUNK_INTERVAL_MS = 1000;
 
+// 毎朝 fetchAndCacheWeather が取得した予報を保存するキー（ScriptProperties 値上限 9KB）
+const WEATHER_CACHE_KEY = "WEATHER_CACHE";
+
 /**
  * 明日の天気予報を Discord / LINE に通知する（JST 前日21時に実行される想定）。
  */
@@ -37,28 +40,14 @@ function checkAndNotify() {
     return;
   }
 
-  const dailyList = fetchOpenMeteoDailyMulti(locations, tomorrow);
-  if (!dailyList) {
-    console.log("天気予報データが取得できませんでした。通知をスキップします。");
-    return;
+  // キャッシュ（毎朝 09:05 JST に取得）を優先。無ければ直接取得を試みる。
+  let reports = readCachedWeather(tomorrow);
+  if (!reports) {
+    const dailyList = fetchOpenMeteoDailyMulti(locations, tomorrow);
+    reports = buildReports(locations, dailyList, tomorrow);
   }
 
-  const reports = [];
-  for (let i = 0; i < locations.length; i++) {
-    const daily = dailyList[i];
-    if (!daily) continue;
-    reports.push({
-      label: locations[i].label,
-      area: locations[i].area,
-      date: tomorrow,
-      probabilityMax: numOrNull(daily.precipitation_probability_max),
-      precipitationSum: numOrNull(daily.precipitation_sum),
-      rainSum: numOrNull(daily.rain_sum),
-      weathercode: daily.weather_code,
-    });
-  }
-
-  if (reports.length === 0) {
+  if (!reports || reports.length === 0) {
     console.log("天気予報データが取得できませんでした。通知をスキップします。");
     return;
   }
@@ -77,11 +66,25 @@ function checkAndNotify() {
 }
 
 /**
- * （初回だけ実行）JST 21:00 に checkAndNotify を毎日実行するトリガーを作成。
+ * （初回だけ実行）毎朝に予報をキャッシュ取得し、毎晩 21:00 JST に通知するトリガーを作成。
+ *
+ * Open-Meteo の無料枠は IP 単位の日次上限（UTC 00:00 リセット）があり、Apps Script は
+ * 共有 IP からアクセスするため夜間（JST 21時 = UTC 12時）の取得は他ユーザーの利用で
+ * 429 になりやすい。そのため UTC リセット直後（09:05 JST）に取得してキャッシュし、
+ * 夜の通知はキャッシュから送信する。取得失敗に備え 10:05 / 11:05 も取得トリガーを登録する。
  */
 function createDailyTrigger() {
   // 重複防止: 既存の同名トリガーを削除してから作成
   deleteTriggers("checkAndNotify");
+  deleteTriggers("fetchAndCacheWeather");
+  for (const hour of [9, 10, 11]) {
+    ScriptApp.newTrigger("fetchAndCacheWeather")
+      .timeBased()
+      .atHour(hour) // JSTとして動作（manifest の timeZone を使用）
+      .nearMinute(5)
+      .everyDays(1)
+      .create();
+  }
   ScriptApp.newTrigger("checkAndNotify")
     .timeBased()
     .atHour(21) // JSTとして動作（manifest の timeZone を使用）
@@ -103,6 +106,69 @@ function deleteTriggers(functionName) {
 /** 手動テスト用（今すぐ実行）。 */
 function manualTest() {
   checkAndNotify();
+}
+
+/**
+ * 明日の予報を Open-Meteo から取得して ScriptProperties にキャッシュする。
+ * 毎朝 09:05 JST（Open-Meteo の日次上限が UTC 00:00 にリセットされる直後）に
+ * トリガーから実行される。当日取得済みの場合は何もしない。
+ */
+function fetchAndCacheWeather() {
+  const tz = Session.getScriptTimeZone() || "Asia/Tokyo";
+  const today = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
+  const fetchOkKey = "FETCH_OK_" + today;
+  if (getEnv(fetchOkKey, "") === "1") {
+    console.log("本日は既に取得済みのためスキップします。");
+    return;
+  }
+
+  const locations = getLocations();
+  if (locations.length === 0) return;
+
+  const tomorrow = getTomorrowDateString(tz);
+  const dailyList = fetchOpenMeteoDailyMulti(locations, tomorrow);
+  const reports = buildReports(locations, dailyList, tomorrow);
+  if (!reports || reports.length === 0) return;
+
+  // ponytail: ScriptProperties の値上限 9KB。地点が数十を超えるなら分割保存が必要。
+  PropertiesService.getScriptProperties().setProperty(WEATHER_CACHE_KEY, JSON.stringify(reports));
+  PropertiesService.getScriptProperties().setProperty(fetchOkKey, "1");
+  console.log(`天気予報をキャッシュしました（${tomorrow}、${reports.length} 地点）。`);
+}
+
+/** キャッシュ済みの予報を返す。未キャッシュまたは予報日が一致しない場合は null。 */
+function readCachedWeather(tomorrow) {
+  const raw = getEnv(WEATHER_CACHE_KEY, "");
+  if (!raw) return null;
+  try {
+    const reports = JSON.parse(raw);
+    if (!Array.isArray(reports) || reports.length === 0) return null;
+    if (reports[0].date !== tomorrow) return null; // 前日以前のキャッシュは使わない
+    return reports;
+  } catch (e) {
+    console.warn("天気予報キャッシュの解析に失敗しました。", e);
+    return null;
+  }
+}
+
+/** Open-Meteo レスポンスを通知用レポート配列に変換。失敗時は null。 */
+function buildReports(locations, dailyList, ymd) {
+  if (!dailyList) return null;
+  const reports = [];
+  for (let i = 0; i < locations.length; i++) {
+    const daily = dailyList[i];
+    if (!daily) continue;
+    reports.push({
+      label: locations[i].label,
+      area: locations[i].area,
+      date: ymd,
+      probabilityMax: numOrNull(daily.precipitation_probability_max),
+      precipitationSum: numOrNull(daily.precipitation_sum),
+      rainSum: numOrNull(daily.rain_sum),
+      weathercode: daily.weather_code,
+    });
+  }
+  return reports;
 }
 
 // ========= 実装詳細 =========
