@@ -105,10 +105,11 @@ function getLocations() {
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
       const locations = parsed
-        .filter((o) => o && typeof o.code === "string" && /^\d{6}$/.test(o.code))
+        // 6桁=予報区域コード / 7桁=市町村コード（どちらも resolver が処理）
+        .filter((o) => o && typeof o.code === "string" && /^\d{6,7}$/.test(o.code))
         .map((o) => ({ label: o.label || "", area: o.area || "", code: o.code }));
       if (locations.length !== parsed.length) {
-        console.warn("予報区域コード(code: 6桁数字)が無い地点を除外しました。");
+        console.warn("予報区域コード(code: 6〜7桁の数字)が無い地点を除外しました。");
       }
       return locations;
     }
@@ -127,8 +128,8 @@ function getTomorrowDateString(tz) {
 
 /**
  * 気象庁の府県天気予報 JSON から全地点の明日の予報を取得する。
- * 予報区域コード（例: 130010）から府県予報区コード（例: 130000）を area.json で解決し、
- * 同一府県は1リクエストにまとめる。
+ * 地点コード（府県予報区/予報区域/市町村コードのいずれでも可）から府県予報区コードを
+ * area.json で解決し、同一府県は1リクエストにまとめる。
  */
 function fetchJmaDailyMulti(locations, ymd) {
   const officeByArea = resolveJmaOffices(locations.map((l) => l.code));
@@ -136,12 +137,14 @@ function fetchJmaDailyMulti(locations, ymd) {
 
   const byOffice = {};
   for (const loc of locations) {
-    const office = officeByArea[loc.code];
-    if (!office) {
+    const resolved = officeByArea[loc.code];
+    if (!resolved) {
       console.warn(`予報区域コードの解決に失敗しました: ${loc.code}（${loc.label}）`);
       continue;
     }
-    (byOffice[office] = byOffice[office] || []).push(loc);
+    // 予報JSONの areas に現れる区域コード（class10 または office）に置き換えて渡す
+    const areaLoc = { label: loc.label, area: loc.area, code: resolved.areaCode };
+    (byOffice[resolved.office] = byOffice[resolved.office] || []).push(areaLoc);
   }
 
   const reports = [];
@@ -158,8 +161,10 @@ function fetchJmaDailyMulti(locations, ymd) {
 }
 
 /**
- * 予報区域コードから府県予報区コードを area.json の親子関係で解決する。
- * 例: 130010（東京地方）→ 130000、016010（石狩地方）→ 016000、460010（薩摩地方）→ 460100。
+ * 地点コードから府県予報区コードと予報区域コードを area.json の親子関係で解決する。
+ * 入力は府県予報区（270000）/予報区域（130010 東京地方）/二次細分区域（110012）/市町村（1123700）の
+ * どの階層でも可。例: 130010 → { office: "130000", areaCode: "130010" }、
+ * 1123700（三郷市）→ { office: "110000", areaCode: "110010" }。
  * area.json の取得に失敗した場合は null。
  */
 function resolveJmaOffices(areaCodes) {
@@ -180,16 +185,19 @@ function resolveJmaOffices(areaCodes) {
   for (const code of areaCodes) {
     let c = code;
     let office = null;
-    for (let i = 0; i < 4; i++) {
+    let areaCode = null;
+    for (let i = 0; i < 5; i++) {
       if (area.offices[c]) {
         office = c;
+        areaCode = areaCode || c;
         break;
       }
-      const node = area.class10s[c] || area.class15s[c];
+      if (area.class10s[c]) areaCode = c; // 予報JSONの areas は class10（または office）コード
+      const node = area.class10s[c] || area.class15s[c] || area.class20s[c];
       if (!node || !node.parent) break;
       c = node.parent;
     }
-    result[code] = office;
+    result[code] = office ? { office: office, areaCode: areaCode || office } : null;
   }
   return result;
 }
