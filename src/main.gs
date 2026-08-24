@@ -56,7 +56,24 @@ function checkAndNotify() {
     postToDiscord(webhookUrl, content);
   }
   if (hasLine) {
-    postToLineInChunks(lineChannelAccessToken, lineTargetId, [content]);
+    // 月間上限到達済みなら今月はLINE送信をスキップ（翌月自動再開）
+    const monthKey = Utilities.formatDate(new Date(), tz, "yyyy-MM");
+    const limitKey = "LINE_MONTHLY_LIMIT_" + monthKey;
+    if (PropertiesService.getScriptProperties().getProperty(limitKey)) {
+      console.warn("LINEは今月の月間上限到達のためスキップします。翌月自動再開。Discord通知は継続します。");
+    } else {
+      try {
+        postToLineInChunks(lineChannelAccessToken, lineTargetId, [content]);
+      } catch (e) {
+        const msg = String(e && e.message || e);
+        if (/monthly limit/i.test(msg)) {
+          PropertiesService.getScriptProperties().setProperty(limitKey, "1");
+          console.warn("LINE月間上限を検出。今月のLINE送信を停止します。LINE Developersコンソールで利用状況を確認してください。Discord通知は継続します。エラー: " + msg);
+        } else {
+          throw e;
+        }
+      }
+    }
   }
 }
 
@@ -413,8 +430,13 @@ function postToLine(channelAccessToken, targetId, messageTexts) {
     const code = res.getResponseCode();
     if (code >= 200 && code < 300) return;
 
+    const body = res.getContentText();
+    // 月間上限はリトライしても回復しないのですぐ中断（翌月までスキップは呼び出し側で処理）
+    if (/monthly limit/i.test(body)) {
+      throw new Error(`LINE 送信エラー (${code}): ${body}`);
+    }
+
     if (code === 401 || code === 400) {
-      const body = res.getContentText();
       throw new Error(`LINE 送信エラー (${code}): ${body}`);
     }
 
@@ -430,7 +452,6 @@ function postToLine(channelAccessToken, targetId, messageTexts) {
       continue;
     }
 
-    const body = res.getContentText();
     throw new Error(`LINE 送信エラー (${code}): ${body}`);
   }
 }
