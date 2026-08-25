@@ -1,4 +1,4 @@
-# weather-forecast-discord
+# weather-forecast-notifier
 
 Google Apps Script で天気予報を監視し、Discord / LINE へ通知するスクリプト。
 予報データは気象庁（JMA）の府県天気予報 JSON を使用します（無料・APIキー不要・レート制限なし）。
