@@ -463,3 +463,78 @@ function numOrNull(v) {
   const n = Number(v);
   return isFinite(n) ? n : null;
 }
+
+// ===== 設定検証ユーティリティ =====
+/**
+ * 現在のセットアップ状態を検証し、結果を返します。
+ * 家族が「なぜ通知が届かないのか」を診断するのに便利です。
+ *
+ * @returns {{ready: boolean, warnings: string[], config: object}}
+ */
+function validateSetup() {
+  const warnings = [];
+  const config = {};
+
+  // 場所設定
+  const locationsRaw = getEnv("LOCATIONS_JSON", "");
+  let locations = [];
+  try {
+    if (locationsRaw) {
+      locations = JSON.parse(locationsRaw);
+      if (!Array.isArray(locations)) {
+        locations = [];
+        warnings.push("LOCATIONS_JSON は配列である必要があります。");
+      }
+    }
+  } catch (e) {
+    warnings.push("LOCATIONS_JSON の JSON 解析に失敗しました。");
+  }
+  config.locationsConfigured = locations.length > 0;
+  config.locationsCount = locations.length;
+  if (!locations.length) {
+    warnings.push("LOCATIONS_JSON が未設定です。通知先の地点を設定してください。");
+  }
+
+  // Discord設定
+  const discordWebhookUrl = (getEnv("DISCORD_WEBHOOK_URL", "") || "").trim();
+  config.discordConfigured = !!discordWebhookUrl;
+
+  // LINE設定
+  const lineChannelAccessToken = (getEnv("LINE_CHANNEL_ACCESS_TOKEN", "") || "").trim();
+  const lineTargetId = (getEnv("LINE_TARGET_ID", "") || "").trim();
+  config.lineConfigured = !!(lineChannelAccessToken && lineTargetId);
+
+  if (!config.discordConfigured && !config.lineConfigured) {
+    warnings.push("通知先が未設定です。Discord または LINE のいずれかを設定してください。");
+  }
+
+  // LINE月間上限チェック
+  if (config.lineConfigured) {
+    const tz = Session.getScriptTimeZone() || "Asia/Tokyo";
+    const now = new Date();
+    const yearMonth = Utilities.formatDate(now, tz, "yyyy-MM");
+    const monthKey = `LINE_MONTHLY_LIMIT_${yearMonth}`;
+    const monthlyLimitReached = getEnv(monthKey, null);
+    if (monthlyLimitReached === "1") {
+      warnings.push(`LINE月間上限に達しています (${yearMonth})。来月までLINE通知は停止します。Discord通知は継続します。`);
+    }
+    config.lineMonthlyLimitReached = monthlyLimitReached === "1";
+  }
+
+  // 今日の実行状態
+  const tz = Session.getScriptTimeZone() || "Asia/Tokyo";
+  const today = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
+  const dedupKey = `RUN_DATE_${today}`;
+  const hasRunToday = getEnv(dedupKey, null);
+  config.hasRunToday = hasRunToday === "1";
+  if (config.hasRunToday) {
+    // This is just informational, not a warning
+    warnings.push(`今日はすでに実行済みです (${today})。`);
+  }
+
+  return {
+    ready: warnings.length === 0,
+    warnings: warnings,
+    config: config,
+  };
+}
