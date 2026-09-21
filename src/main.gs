@@ -8,7 +8,7 @@ const JMA_FORECAST_BASE = "https://www.jma.go.jp/bosai/forecast/data/forecast";
 const JMA_AREA_URL = "https://www.jma.go.jp/bosai/common/const/area.json";
 
 /**
- * 明日の天気予報を Discord / LINE に通知する（JST 21時に実行される想定）。
+ * 明日の天気予報を LINE に通知する（JST 21時に実行される想定）。
  * データは気象庁（JMA）の府県天気予報 JSON を使用（無料・APIキー不要・レート制限なし）。
  */
 function checkAndNotify() {
@@ -23,15 +23,13 @@ function checkAndNotify() {
     return;
   }
 
-  const webhookUrl = (getEnv("DISCORD_WEBHOOK_URL", "") || "").trim();
   const lineChannelAccessToken = (getEnv("LINE_CHANNEL_ACCESS_TOKEN", "") || "").trim();
   const lineTargetId = (getEnv("LINE_TARGET_ID", "") || "").trim();
 
-  const hasDiscord = !!webhookUrl;
   const hasLine = !!lineChannelAccessToken && !!lineTargetId;
 
-  if (!hasDiscord && !hasLine) {
-    console.warn("Script Properties に通知先が未設定です。DISCORD_WEBHOOK_URL または LINE_CHANNEL_ACCESS_TOKEN + LINE_TARGET_ID を設定してください。");
+  if (!hasLine) {
+    console.warn("Script Properties に通知先が未設定です。LINE_CHANNEL_ACCESS_TOKEN + LINE_TARGET_ID を設定してください。");
     return;
   }
 
@@ -50,28 +48,23 @@ function checkAndNotify() {
   // 成功したら重複防止フラグを保存（当日中は再実行しない）
   PropertiesService.getScriptProperties().setProperty(dedupKey, "1");
 
-  const content = buildDiscordMessage(tomorrow, reports);
+  const content = buildForecastMessage(tomorrow, reports);
 
-  if (hasDiscord) {
-    postToDiscord(webhookUrl, content);
-  }
-  if (hasLine) {
-    // 月間上限到達済みなら今月はLINE送信をスキップ（翌月自動再開）
-    const monthKey = Utilities.formatDate(new Date(), tz, "yyyy-MM");
-    const limitKey = "LINE_MONTHLY_LIMIT_" + monthKey;
-    if (PropertiesService.getScriptProperties().getProperty(limitKey)) {
-      console.warn("LINEは今月の月間上限到達のためスキップします。翌月自動再開。Discord通知は継続します。");
-    } else {
-      try {
-        postToLineInChunks(lineChannelAccessToken, lineTargetId, [content]);
-      } catch (e) {
-        const msg = String(e && e.message || e);
-        if (/monthly limit/i.test(msg)) {
-          PropertiesService.getScriptProperties().setProperty(limitKey, "1");
-          console.warn("LINE月間上限を検出。今月のLINE送信を停止します。LINE Developersコンソールで利用状況を確認してください。Discord通知は継続します。エラー: " + msg);
-        } else {
-          throw e;
-        }
+  // 月間上限到達済みなら今月はLINE送信をスキップ（翌月自動再開）
+  const monthKey = Utilities.formatDate(new Date(), tz, "yyyy-MM");
+  const limitKey = "LINE_MONTHLY_LIMIT_" + monthKey;
+  if (PropertiesService.getScriptProperties().getProperty(limitKey)) {
+    console.warn("LINEは今月の月間上限到達のためスキップします。翌月自動再開。");
+  } else {
+    try {
+      postToLineInChunks(lineChannelAccessToken, lineTargetId, [content]);
+    } catch (e) {
+      const msg = String(e && e.message || e);
+      if (/monthly limit/i.test(msg)) {
+        PropertiesService.getScriptProperties().setProperty(limitKey, "1");
+        console.warn("LINE月間上限を検出。今月のLINE送信を停止します。LINE Developersコンソールで利用状況を確認してください。エラー: " + msg);
+      } else {
+        throw e;
       }
     }
   }
@@ -314,8 +307,8 @@ function lastAt(values, idx) {
   return numOrNull(values[idx[idx.length - 1]]);
 }
 
-/** Discord 送信本文を構築。 */
-function buildDiscordMessage(ymd, reports) {
+/** LINE 送信本文を構築。 */
+function buildForecastMessage(ymd, reports) {
   const lines = [];
   lines.push(`📅 明日（${ymd}）の天気予報`);
   for (const r of reports) {
@@ -343,27 +336,6 @@ function jmaWeatherEmoji(code) {
   if (c === "3") return "🌧";
   if (c === "4") return "🌨";
   return "🌈";
-}
-
-/** Discord Webhook に POST。 */
-function postToDiscord(webhookUrl, content) {
-  const MAX_CHARS = 2000;
-  const safeContent =
-    content.length > MAX_CHARS ? content.slice(0, MAX_CHARS - 3) + "..." : content;
-  const payload = { content: safeContent };
-  const options = {
-    method: "post",
-    contentType: "application/json",
-    payload: JSON.stringify(payload),
-    muteHttpExceptions: true,
-  };
-  const res = UrlFetchApp.fetch(webhookUrl, options);
-  const code = res.getResponseCode();
-  if (code >= 300) {
-    console.warn("Discord Webhook エラー:", code, res.getContentText());
-  } else {
-    console.log("Discord 通知完了 (HTTP", code, ")");
-  }
 }
 
 // ========= LINE 通知 =========
@@ -495,17 +467,13 @@ function validateSetup() {
     warnings.push("LOCATIONS_JSON が未設定です。通知先の地点を設定してください。");
   }
 
-  // Discord設定
-  const discordWebhookUrl = (getEnv("DISCORD_WEBHOOK_URL", "") || "").trim();
-  config.discordConfigured = !!discordWebhookUrl;
-
   // LINE設定
   const lineChannelAccessToken = (getEnv("LINE_CHANNEL_ACCESS_TOKEN", "") || "").trim();
   const lineTargetId = (getEnv("LINE_TARGET_ID", "") || "").trim();
   config.lineConfigured = !!(lineChannelAccessToken && lineTargetId);
 
-  if (!config.discordConfigured && !config.lineConfigured) {
-    warnings.push("通知先が未設定です。Discord または LINE のいずれかを設定してください。");
+  if (!config.lineConfigured) {
+    warnings.push("通知先が未設定です。LINE_CHANNEL_ACCESS_TOKEN + LINE_TARGET_ID を設定してください。");
   }
 
   // LINE月間上限チェック
@@ -516,7 +484,7 @@ function validateSetup() {
     const monthKey = `LINE_MONTHLY_LIMIT_${yearMonth}`;
     const monthlyLimitReached = getEnv(monthKey, null);
     if (monthlyLimitReached === "1") {
-      warnings.push(`LINE月間上限に達しています (${yearMonth})。来月までLINE通知は停止します。Discord通知は継続します。`);
+      warnings.push(`LINE月間上限に達しています (${yearMonth})。来月までLINE通知は停止します。`);
     }
     config.lineMonthlyLimitReached = monthlyLimitReached === "1";
   }

@@ -1,6 +1,6 @@
 # weather-forecast-notifier
 
-Google Apps Script で天気予報を監視し、Discord / LINE へ通知するスクリプト。
+Google Apps Script で天気予報を監視し、LINE へ通知するスクリプト。
 予報データは気象庁（JMA）の府県天気予報 JSON を使用します（無料・APIキー不要・レート制限なし）。
 
 ## 公開とセットアップ
@@ -82,23 +82,23 @@ clasp pull   # Apps Script → ローカル
 プライバシー保護の観点から、公開用の例には一般的な地点（駅など）を記載しています。実運用ではご自身の地点に置き換えてください。
 
 コード側では `getLocations()` が `LOCATIONS_JSON` を読み取り、配列を返します。
-他の機密値（Webhook URL, API キー等）も同様にプロパティ化できます。
+他の機密値（トークン, API キー等）も同様にプロパティ化できます。
 
 ```js
 function getEnv(name, defaultValue) {
   const v = PropertiesService.getScriptProperties().getProperty(name);
   return v != null ? v : defaultValue;
 }
-// 例: const DISCORD_WEBHOOK_URL = getEnv('DISCORD_WEBHOOK_URL');
+// 例: const LINE_CHANNEL_ACCESS_TOKEN = getEnv('LINE_CHANNEL_ACCESS_TOKEN');
 ```
 
 ## セットアップ（GAS）
 
-このプロジェクトは Google Apps Script（GAS）上で実行し、条件に合致した場合に Discord Webhook へ通知します。初回のみ、毎日 21:00（JST）に実行するトリガーを作成してください。
+このプロジェクトは Google Apps Script（GAS）上で実行し、条件に合致した場合に LINE Messaging API へ通知します。初回のみ、毎日 21:00（JST）に実行するトリガーを作成してください。
 
 - 前提
 
-  - Discord の Webhook URL を取得済み
+  - LINE Messaging API のチャネルアクセストークンと送信先 ID を取得済み
   - Google アカウントと Apps Script エディタへアクセス可能
 
 - 手順概要
@@ -111,7 +111,8 @@ function getEnv(name, defaultValue) {
 
 - スクリプトプロパティ（必須）
 
-  - `DISCORD_WEBHOOK_URL`: Discord の Webhook URL
+  - `LINE_CHANNEL_ACCESS_TOKEN`: LINE Messaging API のチャネルアクセストークン
+  - `LINE_TARGET_ID`: LINE の送信先 ID（ユーザー / グループ / トークルーム）
   - `LOCATIONS_JSON`: 監視対象地点の配列（JSON 文字列）
     - 形式例:
       ```json
@@ -151,7 +152,7 @@ function getEnv(name, defaultValue) {
 
 - 付与される主な権限
 
-  - 外部サービスへの接続（`UrlFetchApp` による気象庁と Discord への HTTP アクセス）
+  - 外部サービスへの接続（`UrlFetchApp` による気象庁と LINE への HTTP アクセス）
   - スクリプトのプロパティの読み取り（`PropertiesService`）
   - トリガーの管理（`ScriptApp`）
 
