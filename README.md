@@ -1,44 +1,44 @@
 # weather-forecast-notifier
 
-Google Apps Script で天気予報を監視し、LINE へ通知するスクリプト。
-予報データは気象庁（JMA）の府県天気予報 JSON を使用します（無料・APIキー不要・レート制限なし）。
+A script that monitors weather forecasts with Google Apps Script and notifies LINE.
+Forecast data comes from the Japan Meteorological Agency (JMA) prefectural weather forecast JSON (free, no API key, no rate limits).
 
-## 公開とセットアップ
+## Publishing and setup
 
-- リポジトリ公開にあたり、機密情報はコミットしません。
-  - `.clasp.json` は `.gitignore` 済みです（代わりに `.clasp.example.json` をコミット）
-  - 監視対象地点などの運用値は「スクリプトプロパティ」に保存します。
+- No confidential information is committed when publishing this repository.
+  - `.clasp.json` is in `.gitignore` (`.clasp.example.json` is committed instead)
+  - Operational values such as the locations to monitor are stored in Script Properties.
 
-### 1) clasp の準備
+### 1) Preparing clasp
 
 1. `bun add -g @google/clasp`
 2. `clasp login`
 
-### 2) .clasp.json の作成
+### 2) Creating .clasp.json
 
-- このリポジトリではテンプレートとして `.clasp.example.json` を同梱しています。
-- これをコピーして `.clasp.json` を作成し、Apps Script の `scriptId` を設定してください。
+- This repository ships `.clasp.example.json` as a template.
+- Copy it to create `.clasp.json`, then set the Apps Script `scriptId`.
 
 ```bash
 cp .clasp.example.json .clasp.json
-# エディタで YOUR_SCRIPT_ID_HERE を実IDに置換
+# Replace YOUR_SCRIPT_ID_HERE with the real ID in your editor
 ```
 
-### 3) 初回プッシュ/プル
+### 3) First push/pull
 
 ```bash
-clasp push   # ローカル → Apps Script
-# または
-clasp pull   # Apps Script → ローカル
+clasp push   # local -> Apps Script
+# or
+clasp pull   # Apps Script -> local
 ```
 
-## スクリプトプロパティでの設定
+## Configuring via Script Properties
 
-監視対象地点は、Apps Script の「スクリプトプロパティ」に JSON で保存します。
+The locations to monitor are stored as JSON in the Apps Script Script Properties.
 
-- Apps Script エディタ > プロジェクトの設定 > スクリプトプロパティ
-- キー: `LOCATIONS_JSON`
-- 値: 以下のようなオブジェクト配列（label/area/code）
+- Apps Script editor > Project Settings > Script properties
+- Key: `LOCATIONS_JSON`
+- Value: an array of objects like the following (label / area / code)
 
 ```json
 [
@@ -48,114 +48,114 @@ clasp pull   # Apps Script → ローカル
 ]
 ```
 
-`code` は気象庁の**予報区域コード**（6桁数字）です。代表的なもの:
+`code` is the JMA **forecast area code** (a 6-digit number). Typical values:
 
-| 地点 | 予報区域 | code |
+| Place | Forecast area | code |
 | --- | --- | --- |
-| 札幌 | 石狩地方 | 016010 |
-| 仙台 | 宮城県東部 | 040010 |
-| さいたま | 埼玉県南部 | 110010 |
-| 千葉 | 千葉県北西部 | 120010 |
-| 東京 | 東京地方 | 130010 |
-| 横浜 | 神奈川県東部 | 140010 |
-| 新潟 | 下越 | 150010 |
-| 金沢 | 加賀 | 170010 |
-| 静岡 | 中部 | 220010 |
-| 名古屋 | 愛知県西部 | 230010 |
-| 京都 | 京都府南部 | 260010 |
-| 大阪 | 大阪府 | 270000 |
-| 神戸 | 兵庫県南部 | 280010 |
-| 広島 | 広島県南部 | 340010 |
-| 高松 | 香川県 | 370000 |
-| 松山 | 愛媛県中予 | 380010 |
-| 福岡 | 福岡地方 | 400010 |
-| 熊本 | 熊本地方 | 430010 |
-| 鹿児島 | 薩摩地方 | 460010 |
-| 那覇 | 沖縄本島中南部 | 471010 |
+| 札幌 (Sapporo) | 石狩地方 (Ishikari) | 016010 |
+| 仙台 (Sendai) | 宮城県東部 (eastern Miyagi) | 040010 |
+| さいたま (Saitama) | 埼玉県南部 (southern Saitama) | 110010 |
+| 千葉 (Chiba) | 千葉県北西部 (northwestern Chiba) | 120010 |
+| 東京 (Tokyo) | 東京地方 (Tokyo) | 130010 |
+| 横浜 (Yokohama) | 神奈川県東部 (eastern Kanagawa) | 140010 |
+| 新潟 (Niigata) | 下越 (Kaetsu) | 150010 |
+| 金沢 (Kanazawa) | 加賀 (Kaga) | 170010 |
+| 静岡 (Shizuoka) | 中部 (central Shizuoka) | 220010 |
+| 名古屋 (Nagoya) | 愛知県西部 (western Aichi) | 230010 |
+| 京都 (Kyoto) | 京都府南部 (southern Kyoto) | 260010 |
+| 大阪 (Osaka) | 大阪府 (Osaka) | 270000 |
+| 神戸 (Kobe) | 兵庫県南部 (southern Hyogo) | 280010 |
+| 広島 (Hiroshima) | 広島県南部 (southern Hiroshima) | 340010 |
+| 高松 (Takamatsu) | 香川県 (Kagawa) | 370000 |
+| 松山 (Matsuyama) | 愛媛県中予 (Chuyo, Ehime) | 380010 |
+| 福岡 (Fukuoka) | 福岡地方 (Fukuoka) | 400010 |
+| 熊本 (Kumamoto) | 熊本地方 (Kumamoto) | 430010 |
+| 鹿児島 (Kagoshima) | 薩摩地方 (Satsuma) | 460010 |
+| 那覇 (Naha) | 沖縄本島中南部 (central-southern Okinawa main island) | 471010 |
 
-他の地域は、気象庁の[天気予報ページ](https://www.jma.go.jp/bosai/forecast/)で地域を選択し、
-取得される JSON（`forecast/<府県予報区コード>.json`）内の `area.code` を確認してください。
+For other regions, select the region on the JMA [weather forecast page](https://www.jma.go.jp/bosai/forecast/)
+and check `area.code` in the JSON you get back (`forecast/<prefecture forecast area code>.json`).
 
-なお、`code` は予報区域コード（6桁）のほか、**市町村コード（7桁、例: 三郷市=`1123700`）** など
-より細かい階層のコードでも自動的に予報区域へ変換されます。
+Note that `code` does not have to be a 6-digit forecast area code; a finer-grained code such as a
+**municipality code (7 digits, e.g. 三郷市 (Misato City) = `1123700`)** is also converted to the forecast area automatically.
 
-プライバシー保護の観点から、公開用の例には一般的な地点（駅など）を記載しています。実運用ではご自身の地点に置き換えてください。
+For privacy, the public examples use generic places (such as train stations). Replace them with your own locations in real use.
 
-コード側では `getLocations()` が `LOCATIONS_JSON` を読み取り、配列を返します。
-他の機密値（トークン, API キー等）も同様にプロパティ化できます。
+On the code side, `getLocations()` reads `LOCATIONS_JSON` and returns the array.
+Other secrets (tokens, API keys, etc.) can be moved into properties the same way.
 
 ```js
 function getEnv(name, defaultValue) {
   const v = PropertiesService.getScriptProperties().getProperty(name);
   return v != null ? v : defaultValue;
 }
-// 例: const LINE_CHANNEL_ACCESS_TOKEN = getEnv('LINE_CHANNEL_ACCESS_TOKEN');
+// e.g. const LINE_CHANNEL_ACCESS_TOKEN = getEnv('LINE_CHANNEL_ACCESS_TOKEN');
 ```
 
-## セットアップ（GAS）
+## Setup (GAS)
 
-このプロジェクトは Google Apps Script（GAS）上で実行し、条件に合致した場合に LINE Messaging API へ通知します。初回のみ、毎日 21:00（JST）に実行するトリガーを作成してください。
+This project runs on Google Apps Script (GAS) and notifies the LINE Messaging API when the conditions are met. Create the daily 21:00 (JST) trigger once, on first setup.
 
-- 前提
+- Prerequisites
 
-  - LINE Messaging API のチャネルアクセストークンと送信先 ID を取得済み
-  - Google アカウントと Apps Script エディタへアクセス可能
+  - You already have a LINE Messaging API channel access token and destination ID
+  - You have a Google account and access to the Apps Script editor
 
-- 手順概要
+- Steps overview
 
-  1. GAS プロジェクトを新規作成し、`src/main.gs` のコードを貼り付けて保存
-  2. スクリプトプロパティに必須の値を設定
-  3. プロジェクトのタイムゾーンを `Asia/Tokyo` に設定
-  4. `createDailyTrigger` を 1 回実行してトリガー作成（権限付与）
-  5. 必要に応じて手動実行テスト
+  1. Create a new GAS project, paste the code from `src/main.gs`, and save it
+  2. Set the required values in Script Properties
+  3. Set the project time zone to `Asia/Tokyo`
+  4. Run `createDailyTrigger` once to create the trigger (this also grants permissions)
+  5. Run a manual test if needed
 
-- スクリプトプロパティ（必須）
+- Script Properties (required)
 
-  - `LINE_CHANNEL_ACCESS_TOKEN`: LINE Messaging API のチャネルアクセストークン
-  - `LINE_TARGET_ID`: LINE の送信先 ID（ユーザー / グループ / トークルーム）
-  - `LOCATIONS_JSON`: 監視対象地点の配列（JSON 文字列）
-    - 形式例:
+  - `LINE_CHANNEL_ACCESS_TOKEN`: channel access token for the LINE Messaging API
+  - `LINE_TARGET_ID`: LINE destination ID (user / group / talk room)
+  - `LOCATIONS_JSON`: array of locations to monitor (JSON string)
+    - Example format:
       ```json
       [
         { "label": "渋谷", "area": "東京都", "code": "130010" },
         { "label": "梅田", "area": "大阪府", "code": "270000" }
       ]
       ```
-    - 各オブジェクトは `code`（気象庁の予報区域コード・必須）, `label`（任意）, `area`（任意）を持ちます。
+    - Each object has `code` (JMA forecast area code, required), `label` (optional), and `area` (optional).
 
-- タイムゾーン設定
+- Time zone
 
-  - GAS エディタ右上の「プロジェクトの設定」→「タイムゾーン」を `Asia/Tokyo` に設定してください。
-  - コード内の `createDailyTrigger()` は `atHour(21)` で毎日 21:00（プロジェクトのタイムゾーン）に `checkAndNotify` を実行します。
+  - In the GAS editor, set Project Settings > Time zone to `Asia/Tokyo`.
+  - `createDailyTrigger()` in the code uses `atHour(21)` to run `checkAndNotify` every day at 21:00 (project time zone).
 
-- 初回のトリガー作成
+- Creating the trigger the first time
 
-  1. エディタ上部の関数プルダウンから `createDailyTrigger` を選択
-  2. 実行ボタンを押すと権限承認ダイアログが表示されるので許可
-  3. 以後、毎日 21:00（JST）に `checkAndNotify` が自動実行されます（不要になったら後述の方法で削除）
+  1. Select `createDailyTrigger` from the function dropdown at the top of the editor
+  2. Press the run button; an authorization dialog appears, so allow it
+  3. From then on `checkAndNotify` runs automatically every day at 21:00 (JST) (delete it as described below when you no longer need it)
 
-  > データについて: 気象庁の府県天気予報 JSON（`www.jma.go.jp/bosai/...`）を使用します。
-  > 無料・APIキー不要で、Open-Meteo のような日次上限（429）はありません。
-  > 予報は毎日 05時/11時/17時（JST）に更新され、21時の実行時点で最新の17時更新分が使われます。
-  > 通知内容は「天気・降水確率（翌日最大）・気温（府県代表地点の最低/最高）」です
-  > （降水量/雨量は気象庁の予報 JSON に含まれないため、Open-Meteo 版から置き換えました）。
+  > About the data: this uses the JMA prefectural weather forecast JSON (`www.jma.go.jp/bosai/...`).
+  > It is free and requires no API key, and unlike Open-Meteo there is no daily limit (429).
+  > Forecasts are updated every day at 05:00 / 11:00 / 17:00 (JST), so the 21:00 run uses the latest 17:00 update.
+  > Notifications contain the weather, precipitation probability (next-day maximum), and temperature (min/max at the prefectural representative station)
+  > (precipitation amount is not included in the JMA forecast JSON, which is why this replaced the Open-Meteo version).
 
-- 手動テスト（任意）
+- Manual test (optional)
 
-  - `manualTest`（= `checkAndNotify` を即時実行）を選択して実行すると、その時点の「明日」の予報に基づき通知判定を行います。
-  - 予報が取得できない場合は送信しません（コンソールにスキップ理由を出力）。
+  - Select and run `manualTest` (which runs `checkAndNotify` immediately) and it decides whether to notify based on the "tomorrow" forecast at that moment.
+  - If the forecast cannot be fetched, nothing is sent (the skip reason is printed to the console).
 
-- トリガー管理（削除/再作成）
+- Trigger management (delete / recreate)
 
-  - 既存トリガーを削除したい場合は、`deleteTriggers('checkAndNotify')` を実行してください。
-  - 再作成は `createDailyTrigger` を再実行します（内部で重複回避のため同名トリガーを削除してから作成します）。
+  - To delete the existing trigger, run `deleteTriggers('checkAndNotify')`.
+  - To recreate it, run `createDailyTrigger` again (it deletes any trigger with the same name first to avoid duplicates).
 
-- 付与される主な権限
+- Main permissions granted
 
-  - 外部サービスへの接続（`UrlFetchApp` による気象庁と LINE への HTTP アクセス）
-  - スクリプトのプロパティの読み取り（`PropertiesService`）
-  - トリガーの管理（`ScriptApp`）
+  - Connecting to external services (`UrlFetchApp` HTTP access to JMA and LINE)
+  - Reading script properties (`PropertiesService`)
+  - Managing triggers (`ScriptApp`)
 
-- 補足
-  - 実行関数は `checkAndNotify` で、トリガーは `createDailyTrigger` で作成します。
-  - 気象庁 API の応答が 200 でない場合はログに警告を出してスキップします。
+- Notes
+  - The function that runs is `checkAndNotify`, and the trigger is created by `createDailyTrigger`.
+  - If the JMA API response is not 200, a warning is logged and the run is skipped.
