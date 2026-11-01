@@ -307,10 +307,127 @@ function lastAt(values, idx) {
   return numOrNull(values[idx[idx.length - 1]]);
 }
 
+/**
+ * 全地点の予報データから傘の要否サマリーを判定する純粋関数。
+ * @param {Array<Object>} reports 地点予報の配列
+ * @return {Object|null} 判定結果オブジェクトまたはnull（判定不能時）
+ */
+function evaluateUmbrellaNeed(reports) {
+  if (!reports || !Array.isArray(reports) || reports.length === 0) {
+    return null;
+  }
+
+  const validReports = reports.filter((r) => r && typeof r === "object");
+  if (validReports.length === 0) {
+    return null;
+  }
+
+  let hasAnyData = false;
+  for (const r of validReports) {
+    if (
+      (r.popMax != null && !isNaN(Number(r.popMax))) ||
+      r.weatherCode != null ||
+      (typeof r.weatherText === "string" && r.weatherText.trim().length > 0)
+    ) {
+      hasAnyData = true;
+      break;
+    }
+  }
+  if (!hasAnyData) {
+    return null;
+  }
+
+  const isRainOrSnowCode = (code) => {
+    if (code == null) return false;
+    const s = String(code).trim();
+    if (s.startsWith("3") || s.startsWith("4")) return true;
+    const n = Number(code);
+    return !isNaN(n) && n >= 300 && n < 500;
+  };
+
+  const isRainOrSnowText = (text) => {
+    if (!text || typeof text !== "string") return false;
+    return text.includes("雨") || text.includes("雪");
+  };
+
+  const rainReports = [];
+  const foldReports = [];
+
+  for (const r of validReports) {
+    const pop = r.popMax != null && !isNaN(Number(r.popMax)) ? Number(r.popMax) : null;
+    const hasRainCode = isRainOrSnowCode(r.weatherCode);
+    const hasRainText = isRainOrSnowText(r.weatherText);
+    const isRain = (pop != null && pop >= 50) || hasRainCode || hasRainText;
+
+    if (isRain) {
+      rainReports.push({ report: r, pop: pop != null ? pop : -1 });
+    } else if (pop != null && pop >= 30 && pop < 50) {
+      foldReports.push({ report: r, pop: pop });
+    }
+  }
+
+  if (rainReports.length > 0) {
+    rainReports.sort((a, b) => b.pop - a.pop);
+    const rep = rainReports[0].report;
+    const repName = rep.label || rep.area || "代表地点";
+    const popVal =
+      rep.popMax != null && !isNaN(Number(rep.popMax))
+        ? Number(rep.popMax)
+        : rainReports[0].pop >= 0
+        ? rainReports[0].pop
+        : 0;
+    const message = `☔ 明日は傘をお持ちください（${repName}: 降水確率 ${popVal}%）`;
+    return {
+      level: "rain",
+      icon: "☔",
+      text: message,
+      message: message,
+      representative: repName,
+      representativeLocation: repName,
+      popMax: popVal,
+    };
+  }
+
+  if (foldReports.length > 0) {
+    foldReports.sort((a, b) => b.pop - a.pop);
+    const rep = foldReports[0].report;
+    const repName = rep.label || rep.area || "代表地点";
+    const popVal =
+      rep.popMax != null && !isNaN(Number(rep.popMax))
+        ? Number(rep.popMax)
+        : foldReports[0].pop;
+    const message = `🌂 折りたたみ傘があると安心です（${repName}: 降水確率 ${popVal}%）`;
+    return {
+      level: "fold",
+      icon: "🌂",
+      text: message,
+      message: message,
+      representative: repName,
+      representativeLocation: repName,
+      popMax: popVal,
+    };
+  }
+
+  const message = "☀ 傘は不要です";
+  return {
+    level: "none",
+    icon: "☀",
+    text: message,
+    message: message,
+    representative: null,
+    representativeLocation: null,
+    popMax: null,
+  };
+}
+
 /** LINE 送信本文を構築。 */
 function buildForecastMessage(ymd, reports) {
   const lines = [];
   lines.push(`📅 明日（${ymd}）の天気予報`);
+  const umbrella = evaluateUmbrellaNeed(reports);
+  if (umbrella && umbrella.text) {
+    lines.push(umbrella.text);
+  }
   for (const r of reports) {
     const weather = r.weatherText ? `${jmaWeatherEmoji(r.weatherCode)} ${r.weatherText}` : "不明";
     const prob = r.popMax != null ? `${r.popMax}%` : "N/A";
@@ -506,3 +623,19 @@ function validateSetup() {
     config: config,
   };
 }
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    evaluateUmbrellaNeed,
+    buildForecastMessage,
+    jmaWeatherEmoji,
+    checkAndNotify,
+    getLocations,
+    getTomorrowDateString,
+    fetchJmaDailyMulti,
+    resolveJmaOffices,
+    postToLineInChunks,
+    validateSetup,
+  };
+}
+
