@@ -1,0 +1,8 @@
+{
+  "name": "weather-forecast-notifier",
+  "version": "1.0.0",
+  "description": "Weather forecast notifier for LINE using JMA API on Google Apps Script",
+  "scripts": {
+    "test": "node --test tests/"
+  }
+}

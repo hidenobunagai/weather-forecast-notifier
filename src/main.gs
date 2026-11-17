@@ -7,6 +7,8 @@ const LINE_CHUNK_INTERVAL_MS = 1000;
 const JMA_FORECAST_BASE = "https://www.jma.go.jp/bosai/forecast/data/forecast";
 const JMA_AREA_URL = "https://www.jma.go.jp/bosai/common/const/area.json";
 
+const RUN_OK_PREFIX = "RUN_OK_";
+
 /**
  * 明日の天気予報を LINE に通知する（JST 21時に実行される想定）。
  * データは気象庁（JMA）の府県天気予報 JSON を使用（無料・APIキー不要・レート制限なし）。
@@ -17,7 +19,7 @@ function checkAndNotify() {
 
   // 重複実行防止: 当日の成功実行フラグがあればスキップ
   const today = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
-  const dedupKey = "RUN_OK_" + today;
+  const dedupKey = RUN_OK_PREFIX + today;
   if (PropertiesService.getScriptProperties().getProperty(dedupKey)) {
     console.log("本日は既に実行済みのためスキップします。");
     return;
@@ -45,9 +47,6 @@ function checkAndNotify() {
     return;
   }
 
-  // 成功したら重複防止フラグを保存（当日中は再実行しない）
-  PropertiesService.getScriptProperties().setProperty(dedupKey, "1");
-
   const content = buildForecastMessage(tomorrow, reports);
 
   // 月間上限到達済みなら今月はLINE送信をスキップ（翌月自動再開）
@@ -68,6 +67,9 @@ function checkAndNotify() {
       }
     }
   }
+
+  // Record completion flag only after notification flow finishes without non-quota exceptions
+  PropertiesService.getScriptProperties().setProperty(dedupKey, "1");
 }
 
 /**
@@ -446,6 +448,8 @@ function numOrNull(v) {
 function validateSetup() {
   const warnings = [];
   const config = {};
+  const tz = Session.getScriptTimeZone() || "Asia/Tokyo";
+  const now = new Date();
 
   // 場所設定
   const locationsRaw = getEnv("LOCATIONS_JSON", "");
@@ -478,8 +482,6 @@ function validateSetup() {
 
   // LINE月間上限チェック
   if (config.lineConfigured) {
-    const tz = Session.getScriptTimeZone() || "Asia/Tokyo";
-    const now = new Date();
     const yearMonth = Utilities.formatDate(now, tz, "yyyy-MM");
     const monthKey = `LINE_MONTHLY_LIMIT_${yearMonth}`;
     const monthlyLimitReached = getEnv(monthKey, null);
@@ -490,9 +492,8 @@ function validateSetup() {
   }
 
   // 今日の実行状態
-  const tz = Session.getScriptTimeZone() || "Asia/Tokyo";
-  const today = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
-  const dedupKey = `RUN_DATE_${today}`;
+  const today = Utilities.formatDate(now, tz, "yyyy-MM-dd");
+  const dedupKey = RUN_OK_PREFIX + today;
   const hasRunToday = getEnv(dedupKey, null);
   config.hasRunToday = hasRunToday === "1";
   if (config.hasRunToday) {
@@ -504,5 +505,32 @@ function validateSetup() {
     ready: warnings.length === 0,
     warnings: warnings,
     config: config,
+  };
+}
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    RUN_OK_PREFIX,
+    checkAndNotify,
+    validateSetup,
+    manualTest,
+    createDailyTrigger,
+    deleteTriggers,
+    getLocations,
+    getTomorrowDateString,
+    fetchJmaDailyMulti,
+    resolveJmaOffices,
+    parseJmaForecast,
+    indicesByDate,
+    findJmaArea,
+    maxAt,
+    firstAt,
+    lastAt,
+    buildForecastMessage,
+    jmaWeatherEmoji,
+    postToLineInChunks,
+    normalizeLineMessage,
+    postToLine,
+    numOrNull,
   };
 }
